@@ -1,0 +1,52 @@
+name: Deploy static site to GitHub Pages
+
+# Needs Settings → Pages → Source = "GitHub Actions"; with "Deploy from a branch" GitHub's own
+# pages-build-deployment publishes instead and this workflow only deploys a second time.
+# This repo is force-pushed by amazi_monitor (daily.yml keeps .github/, night.yml amends), so edit with care.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# one deployment at a time; a push while one runs waits, and only the newest waiting one is kept
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url || steps.retry.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: .
+
+      # GitHub's Pages queue sometimes leaves a deployment "deployment_queued" until the 10-min limit
+      # (the action's maximum; a longer timeout is ignored). A fresh deployment usually goes straight through.
+      - name: Deploy to GitHub Pages
+        id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+
+      - name: Deploy again if the first one got stuck
+        id: retry
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v5
